@@ -36,9 +36,6 @@ class restore_format_grid_plugin extends restore_format_plugin {
     /** @var int */
     protected $originalnumsections = 0;
 
-    /** @var int */
-    protected $originalgnumsections = false;
-
     /**
      * Returns the paths to be handled by the plugin at course level.
      * I think this is only called when the course format settings change.
@@ -57,19 +54,48 @@ class restore_format_grid_plugin extends restore_format_plugin {
             $this->originalnumsections = (int)$maxsection;
         }
 
-        // Nop path element is needed in order for after_restore_course() to be called.
-        return [new restore_path_element('grid', $this->get_pathfor('/'))];
+        $paths = [];
+
+        // Add own format stuff.
+        $elename = 'grid'; // This defines the postfix of 'process_*' below.
+        /*
+         * This is defines the nested tag within 'plugin_format_grid_course' to allow '/course/plugin_format_grid_course' in
+         * the path therefore as a path structure representing the levels in section.xml in the backup file.
+         */
+        $elepath = $this->get_pathfor('/');
+        $paths[] = new restore_path_element($elename, $elepath);
+
+        return $paths; // And we return the interesting paths.
     }
 
     /**
-     * Process grid coourse format options method.
-     *
-     * @return void
+     * Process the 'plugin_format_grid_course' element within the 'course' element in the 'course.xml' file in the '/course'
+     * folder of the zipped backup 'mbz' file.
      */
     public function process_grid($data) {
-        if ((!empty($data['name'])) && ($data['name'] == 'gnumsections')) {
-            $this->originalgnumsections = $data['value'];
+        global $DB;
+
+        $data = (object) $data;
+
+        $courseid = $this->task->get_courseid();
+        /* We only process this information if the course we are restoring to
+           has 'grid' format (target format can change depending of restore options). */
+        $format = $DB->get_field('course', 'format', ['id' => $courseid]);
+        if ($format !== 'grid') {
+            return;
         }
+
+        $data->courseid = $courseid;
+
+        if (!($course = $DB->get_record('course', ['id' => $data->courseid]))) {
+            throw new \moodle_exception(
+                'invalidcourseid',
+                'format_grid',
+                '',
+                get_string('invalidcourseid', 'error')
+            );
+        } // From /course/view.php.
+        // No need to annotate anything here.
     }
 
     /**
@@ -125,35 +151,34 @@ class restore_format_grid_plugin extends restore_format_plugin {
 
         $courseformat = course_get_format($courseid);
         $settings = $courseformat->get_settings();
-        $gnumsections = $settings['gnumsections'];
 
-        if (!empty($settings['numsections'])) {
-            if ($settings['numsections'] != $gnumsections) {
-                $courseformat->restore_gnumsections($settings['numsections']);
-                $gnumsections = $settings['numsections'];
-            }
-        } else if ($this->originalgnumsections !== false) {
-            if ($this->originalgnumsections != $gnumsections) {
-                $courseformat->restore_gnumsections($this->originalgnumsections);
-                $gnumsections = $this->originalgnumsections;
-            }
+        if (empty($settings['numsections'])) {
+            /* Backup file does not contain 'numsections' in the course format options so we need to set it from the number of
+               sections we can determine the course has.  The 'default' might be wrong, so there could be an entry in the db
+               already with this wrong value. */
+
+            $maxsection = $DB->get_field_sql('SELECT max(section) FROM {course_sections} WHERE course = ?', [$courseid]);
+
+            $courseformat->restore_gnumsections($maxsection);
+            return;
+        } else {
+            // The backup file contains 'numsections' so we need to set 'gnumsections' to this value.
+            $courseformat->restore_gnumsections($settings['numsections']);
         }
 
-        if ($this->originalnumsections) {
-            foreach ($backupinfo->sections as $key => $section) {
-                /* For each section from the backup file check if it was restored and if was "orphaned" in the original
-                   course and mark it as hidden. This will leave all activities in it visible and available just as it was
-                   in the original course.
-                   Exception is when we restore with merging and the course already had a section with this section number,
-                   in this case we don't modify the visibility. */
-                if ($this->step->get_task()->get_setting_value($key . '_included')) {
-                    $sectionnum = (int)$section->title;
-                    if ($sectionnum > $gnumsections && $sectionnum > $this->originalnumsections) {
-                        $DB->execute(
-                            "UPDATE {course_sections} SET visible = 0 WHERE course = ? AND section = ?",
-                            [$this->step->get_task()->get_courseid(), $sectionnum]
-                        );
-                    }
+        foreach ($backupinfo->sections as $key => $section) {
+            /* For each section from the backup file check if it was restored and if was "orphaned" in the original
+               course and mark it as hidden. This will leave all activities in it visible and available just as it was
+               in the original course.
+               Exception is when we restore with merging and the course already had a section with this section number,
+               in this case we don't modify the visibility. */
+            if ($this->step->get_task()->get_setting_value($key . '_included')) {
+                $sectionnum = (int)$section->title;
+                if ($sectionnum > $settings['numsections'] && $sectionnum > $this->originalnumsections) {
+                    $DB->execute(
+                        "UPDATE {course_sections} SET visible = 0 WHERE course = ? AND section = ?",
+                        [$this->step->get_task()->get_courseid(), $sectionnum]
+                    );
                 }
             }
         }
@@ -182,9 +207,7 @@ class restore_format_grid_plugin extends restore_format_plugin {
 
         $data = (object) $data;
 
-        $task = $this->step->get_task();
-
-        $target = $task->get_target();
+        $target = $this->step->get_task()->get_target();
         if (
             ($target == backup::TARGET_NEW_COURSE) ||
             ($target == backup::TARGET_CURRENT_ADDING) ||
@@ -195,15 +218,12 @@ class restore_format_grid_plugin extends restore_format_plugin {
                Thus when an existing course or course file is used but the course restore code is not called.
                Because the backup file / course being restored from has the correct 'sections', i.e. that will be in the
                'course_sections' table. */
-            $courseid = $task->get_courseid();
-
+            $courseid = $this->task->get_courseid();
+            static $gnumsections = 0;
+            $gnumsections++;
             // We don't know how many more sections there is and also don't know if this is the last.
             $courseformat = course_get_format($courseid);
-            if ($courseformat->get_format() == 'grid') {
-                static $gnumsections = 0;
-                $gnumsections++;
-                $courseformat->restore_gnumsections($gnumsections);
-            }
+            $courseformat->restore_gnumsections($gnumsections);
         }
         /* Allow this to process even if not in the grid format so that our event observer on 'course_restored'
            can perform a clean up of restored grid image files after all the data is in place in the database
