@@ -18,11 +18,10 @@
  * Grid Format.
  *
  * @package    format_grid
- * @version    See the value of '$plugin->version' in version.php.
  * @copyright  &copy; 2013 G J Barnard in respect to modifications of standard topics format.
- * @author     G J Barnard - {@link http://about.me/gjbarnard} and
- *                           {@link http://moodle.org/user/profile.php?id=442195}
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @author     G J Barnard - {@link https://about.me/gjbarnard} and
+ *                           {@link https://moodle.org/user/profile.php?id=442195}
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die;
@@ -49,7 +48,7 @@ if ($ADMIN->fulltree) {
     ));
 
     // Information.
-    $page->add(new admin_setting_information('format_grid/formatinformation', '', '', 402));
+    $page->add(new admin_setting_information('format_grid/formatinformation', '', '', 403));
 
     // Support.md.
     $page->add(new admin_setting_markdown('format_grid/formatsupport', '', '', 'Support.md'));
@@ -147,6 +146,17 @@ if ($ADMIN->fulltree) {
     $setting = new admin_setting_configselect($name, $title, $description, $default, $choices);
     $setting->set_updatedcallback('format_grid::update_displayed_images_callback');
     $page->add($setting);
+
+    // Section zero in grid.
+    $name = 'format_grid/defaultsectionzeroingrid';
+    $title = get_string('defaultsectionzeroingrid', 'format_grid');
+    $description = get_string('defaultsectionzeroingrid_desc', 'format_grid');
+    $default = 1;
+    $choices = [
+        1 => new lang_string('no'),
+        2 => new lang_string('yes'),
+    ];
+    $page->add(new admin_setting_configselect($name, $title, $description, $default, $choices));
 
     // Completion.
     $name = 'format_grid/defaultshowcompletion';

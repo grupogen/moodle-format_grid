@@ -38,8 +38,11 @@ use stdClass;
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class content extends content_base {
+    /** @var array sectioncompletionpercentage */
     private $sectioncompletionpercentage = [];
+    /** @var array sectioncompletionmarkup */
     private $sectioncompletionmarkup = [];
+    /** @var array sectioncompletioncalculated */
     private $sectioncompletioncalculated = [];
 
     /**
@@ -49,6 +52,17 @@ class content extends content_base {
      */
     protected $hasaddsection = false;
 
+    /**
+     * @var int Are there stealth sections with content?
+     */
+    protected $hassteathwithcontent = 0;
+
+    /**
+     * Get the template name.
+     *
+     * @param renderer_base $output typically, the renderer that's calling this method.
+     * @return string Mustache template name.
+     */
     public function get_template_name(\renderer_base $renderer): string {
         return 'format_grid/local/content';
     }
@@ -56,8 +70,8 @@ class content extends content_base {
     /**
      * Export this data so it can be used as the context for a mustache template (core/inplace_editable).
      *
-     * @param renderer_base $output typically, the renderer that's calling this function
-     * @return stdClass data context for a Mustache template
+     * @param renderer_base $output typically, the renderer that's calling this method.
+     * @return stdClass data context for a Mustache template.
      */
     public function export_for_template(\renderer_base $output) {
         global $DB, $PAGE;
@@ -67,22 +81,27 @@ class content extends content_base {
         $data = (object)[
             'title' => $format->page_title(),
             'format' => $format->get_format(),
-            'sectionreturn' => 0,
+            'sectionreturn' => null,
         ];
 
-        $singlesection = $this->format->get_section_number();
+        $singlesectionid = $this->format->get_sectionid();
         $sections = $this->export_sections($output);
         $initialsection = '';
         $course = $format->get_course();
         $currentsectionid = 0;
+        $coursesettings = $format->get_settings();
+        $sectionzeronotingrid = ($coursesettings['sectionzeroingrid'] == 1);
 
         if (!empty($sections)) {
-            // Most formats uses section 0 as a separate section so we remove from the list.
-            $initialsection = array_shift($sections);
-            if (!$singlesection) {
-                $data->initialsection = $initialsection;
+            // Is first entry section 0?
+            if ($sections[0]->num === 0) {
+                if ((!$singlesectionid) && ($sectionzeronotingrid)) {
+                    // Most formats uses section 0 as a separate section so we remove from the list.
+                    $initialsection = array_shift($sections);
+                    $data->initialsection = $initialsection;
+                }
             }
-            if (($editing) || ($singlesection)) { // This triggers the display of the standard list of section(s).
+            if (($editing) || ($singlesectionid)) { // This triggers the display of the standard list of section(s).
                 $data->sections = $sections;
             }
             if (!empty($course->marker)) {
@@ -96,34 +115,38 @@ class content extends content_base {
         }
 
         // The single section format has extra navigation.
-        if ($singlesection) {
-            $sectionnavigation = new $this->sectionnavigationclass($format, $singlesection);
+        if ($singlesectionid) {
+            $singlesectionno = $this->format->get_sectionnum();
+            $sectionnavigation = new $this->sectionnavigationclass($format, $singlesectionno);
             $data->sectionnavigation = $sectionnavigation->export_for_template($output);
 
             $sectionselector = new $this->sectionselectorclass($format, $sectionnavigation);
             $data->sectionselector = $sectionselector->export_for_template($output);
             $data->hasnavigation = true;
             $data->singlesection = array_shift($data->sections);
-            $data->sectionreturn = $singlesection;
+            $data->sectionreturn = $singlesectionno;
             $data->maincoursepage = new \moodle_url('/course/view.php', ['id' => $course->id]);
         } else {
-            $coursesettings = $format->get_settings();
             $toolbox = \format_grid\toolbox::get_instance();
             $coursesectionimages = $DB->get_records('format_grid_image', ['courseid' => $course->id]);
             if (!empty($coursesectionimages)) {
                 $fs = get_file_storage();
                 $coursecontext = \context_course::instance($course->id);
                 foreach ($coursesectionimages as $coursesectionimage) {
-                    $replacement = $toolbox->check_displayed_image(
-                        $coursesectionimage,
-                        $course->id,
-                        $coursecontext->id,
-                        $coursesectionimage->sectionid,
-                        $format,
-                        $fs
-                    );
-                    if (!empty($replacement)) {
-                        $coursesectionimages[$coursesectionimage->id] = $replacement;
+                    try {
+                        $replacement = $toolbox->check_displayed_image(
+                            $coursesectionimage,
+                            $course->id,
+                            $coursecontext->id,
+                            $coursesectionimage->sectionid,
+                            $format,
+                            $fs
+                        );
+                        if (!empty($replacement)) {
+                            $coursesectionimages[$coursesectionimage->id] = $replacement;
+                        }
+                    } catch (\moodle_exception $me) {
+                        $coursesectionimages[$coursesectionimage->id]->imageerror = $me->getMessage();
                     }
                 }
             }
@@ -165,13 +188,19 @@ class content extends content_base {
             }
             foreach ($sectionsforgrid as $section) {
                 // Do we have an image?
-                if ((array_key_exists($section->id, $sectionimages)) && ($sectionimages[$section->id]->displayedimagestate >= 1)) {
-                    $sectionimages[$section->id]->imageuri = $toolbox->get_displayed_image_uri(
-                        $sectionimages[$section->id],
-                        $coursecontext->id,
-                        $section->id,
-                        $displayediswebp
-                    );
+                if (array_key_exists($section->id, $sectionimages)) {
+                    if ($sectionimages[$section->id]->displayedimagestate >= 1) {
+                        $sectionimages[$section->id]->imageuri = $toolbox->get_displayed_image_uri(
+                            $sectionimages[$section->id],
+                            $coursecontext->id,
+                            $section->id,
+                            $displayediswebp
+                        );
+                    } else if (empty($sectionimages[$section->id]->imageerror)) {
+                        $sectionimages[$section->id]->imageerror =
+                            get_string('cannotconvertuploadedimagetodisplayedimage', 'format_grid',
+                                json_encode($sectionimages[$section->id]));
+                    }
                 } else {
                     // No.
                     $sectionimages[$section->id] = new stdClass();
@@ -198,8 +227,8 @@ class content extends content_base {
                 } else {
                     // Section link.
                     $sectionimages[$section->id]->sectionurl = new \moodle_url(
-                        '/course/view.php',
-                        ['id' => $course->id, 'section' => $section->num]
+                        '/course/section.php',
+                        ['id' => $section->id]
                     );
                     $sectionimages[$section->id]->sectionurl = $sectionimages[$section->id]->sectionurl->out(false);
 
@@ -258,6 +287,13 @@ class content extends content_base {
             }
         }
 
+        if ($this->hassteathwithcontent) {
+            $context = \context_course::instance($course->id);
+            if (has_capability('moodle/course:update', $context)) {
+                $data->stealthwarning = get_string('stealthwarning', 'format_grid', $this->hassteathwithcontent);
+            }
+        }
+
         if ($this->hasaddsection) {
             $addsection = new $this->addsectionclass($format);
             $data->numsections = $addsection->export_for_template($output);
@@ -289,9 +325,14 @@ class content extends content_base {
         $sections = [];
         $numsections = $format->get_last_section_number();
         $sectioninfos = $modinfo->get_section_info_all();
-        // Get rid of section 0.
-        if (!empty($sectioninfos)) {
-            array_shift($sectioninfos);
+
+        $coursesettings = $format->get_settings();
+        $sectionzeronotingrid = ($coursesettings['sectionzeroingrid'] == 1);
+        if ($sectionzeronotingrid) {
+            // Get rid of section 0.
+            if (!empty($sectioninfos)) {
+                array_shift($sectioninfos);
+            }
         }
         foreach ($sectioninfos as $thissection) {
             // The course/view.php check the section existence but the output can be called from other parts so we need to check it.
@@ -309,6 +350,9 @@ class content extends content_base {
             }
 
             if ($thissection->section > $numsections) {
+                if (!empty($modinfo->sections[$thissection->section])) {
+                    $this->hassteathwithcontent++;
+                }
                 continue;
             }
 

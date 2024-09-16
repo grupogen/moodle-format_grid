@@ -18,22 +18,25 @@
  * Grid Format.
  *
  * @package    format_grid
- * @version    See the value of '$plugin->version' in version.php.
  * @copyright  &copy; 2012+ G J Barnard in respect to modifications of standard topics format.
- * @author     G J Barnard - {@link http://about.me/gjbarnard} and
- *                           {@link http://moodle.org/user/profile.php?id=442195}
+ * @author     G J Barnard - {@link https://about.me/gjbarnard} and
+ *                           {@link https://moodle.org/user/profile.php?id=442195}
  * @author     Based on code originally written by Paul Krix and Julian Ridden.
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @license    https://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/course/format/lib.php'); // For format_base.
 
+/**
+ * Grid Format class.
+ */
 class format_grid extends core_courseformat\base {
-    // Used to determine the type of view URL to generate - parameter or anchor.
+    /** @var int $coursedisplay Used to determine the type of view URL to generate - parameter or anchor. */
     private $coursedisplay = COURSE_DISPLAY_MULTIPAGE;
 
+    /** @var array $settings Settings. */
     private $settings = null;
 
     /**
@@ -100,6 +103,29 @@ class format_grid extends core_courseformat\base {
     }
 
     /**
+     * Method used in the rendered and during backup instead of legacy 'numsections'
+     *
+     * Default renderer will treat sections with sectionnumber greater that the value returned by this
+     * method as "orphaned" and not display them on the course page unless in editing mode.
+     * Backup will store this value as 'numsections'.
+     *
+     * This method ensures that 3rd party course format plugins that still use 'numsections' continue to
+     * work but at the same time we no longer expect formats to have 'numsections' property.
+     *
+     * @return int The last section number, or -1 if sections are entirely missing
+     */
+    public function get_last_section_number() {
+        $course = $this->get_course();
+        if (isset($course->gnumsections)) {
+            if ($course->gnumsections >= 0) {
+                return $course->gnumsections;
+            }
+        }
+
+        return parent::get_last_section_number();
+    }
+
+    /**
      * Returns true if this course format uses sections.
      *
      * @return bool
@@ -108,10 +134,20 @@ class format_grid extends core_courseformat\base {
         return true;
     }
 
+    /**
+     * Returns true if this course format uses the course index.
+     *
+     * @return bool
+     */
     public function uses_course_index() {
         return true;
     }
 
+    /**
+     * Returns true if this course format uses indentation.
+     *
+     * @return bool
+     */
     public function uses_indentation(): bool {
         return false;
     }
@@ -157,59 +193,36 @@ class format_grid extends core_courseformat\base {
     }
 
     /**
+     * Returns if an specific section is visible to the current user.
+     *
+     * Formats can overrride this method to implement any special section logic.
+     *
+     * @param section_info $section the section modinfo
+     * @return bool;
+     */
+    public function is_section_visible(section_info $section): bool {
+        if ($section->section > $this->get_last_section_number()) {
+            // Stealth section.
+            global $PAGE;
+            $context = context_course::instance($this->course->id);
+            if ($PAGE->user_is_editing() && has_capability('moodle/course:update', $context)) {
+                $modinfo = get_fast_modinfo($this->course);
+                // If the stealth section has modules then is visible.
+                return (!empty($modinfo->sections[$section->section]));
+            }
+            // Don't show.
+            return false;
+        }
+        return parent::is_section_visible($section);
+    }
+
+    /**
      * Generate the title for this section page.
      *
      * @return string the page title
      */
     public function page_title(): string {
-        return get_string('topicoutline');
-    }
-
-    /**
-     * The URL to use for the specified course (with section)
-     *
-     * @param int|stdClass $section Section object from database or just field course_sections.section
-     *     if omitted the course view page is returned
-     * @param array $options options for view URL. At the moment core uses:
-     *     'navigation' (bool) if true and section has no separate page, the function returns null
-     *     'sr' (int) used by multipage formats to specify to which section to return
-     * @return null|moodle_url
-     */
-    public function get_view_url($section, $options = []) {
-        global $CFG;
-        $course = $this->get_course();
-        $url = new moodle_url('/course/view.php', ['id' => $course->id]);
-
-        $sr = null;
-        if (array_key_exists('sr', $options)) {
-            $sr = $options['sr'];
-        }
-        if (is_object($section)) {
-            $sectionno = $section->section;
-        } else {
-            $sectionno = $section;
-        }
-        if ($sectionno !== null) {
-            if ($sr !== null) {
-                if ($sr) {
-                    $usercoursedisplay = COURSE_DISPLAY_MULTIPAGE;
-                    $sectionno = $sr;
-                } else {
-                    $usercoursedisplay = COURSE_DISPLAY_SINGLEPAGE;
-                }
-            } else {
-                $usercoursedisplay = $this->coursedisplay;
-            }
-            if ($sectionno != 0 && $usercoursedisplay == COURSE_DISPLAY_MULTIPAGE) {
-                $url->param('section', $sectionno);
-            } else {
-                if (empty($CFG->linkcoursesections) && !empty($options['navigation'])) {
-                    return null;
-                }
-                $url->set_anchor('section-' . $sectionno);
-            }
-        }
-        return $url;
+        return get_string('sectionoutline');
     }
 
     /**
@@ -227,6 +240,11 @@ class format_grid extends core_courseformat\base {
         return $ajaxsupport;
     }
 
+    /**
+     * Returns true if this course format supports components.
+     *
+     * @return bool
+     */
     public function supports_components() {
         return true;
     }
@@ -287,6 +305,45 @@ class format_grid extends core_courseformat\base {
             }
         }
         return ['sectiontitles' => $titles, 'action' => 'move'];
+    }
+
+    /**
+     * The URL to use for the specified course (with section)
+     *
+     * Please note that course view page /course/view.php?id=COURSEID is hardcoded in many
+     * places in core and contributed modules. If course format wants to change the location
+     * of the view script, it is not enough to change just this function. Do not forget
+     * to add proper redirection.
+     *
+     * @param int|stdClass $section Section object from database or just field course_sections.section
+     *     if null the course view page is returned
+     * @param array $options options for view URL. At the moment core uses:
+     *     'navigation' (bool) if true and section not empty, the function returns section page; otherwise, it returns course page.
+     *     'sr' (int) used by course formats to specify to which section to return
+     *     'expanded' (bool) if true the section will be shown expanded, true by default
+     * @return null|moodle_url
+     */
+    public function get_view_url($section, $options = []) {
+        $course = $this->get_course();
+        $url = new moodle_url('/course/view.php', ['id' => $course->id]);
+
+        if (array_key_exists('sr', $options)) {
+            $sectionno = $options['sr'];
+        } else if (is_object($section)) {
+            $sectionno = $section->section;
+        } else {
+            $sectionno = $section;
+        }
+        if (!empty($options['navigation']) && $sectionno !== null) {
+            // Display section on separate page.
+            $sectioninfo = $this->get_section($sectionno);
+            return new moodle_url('/course/section.php', ['id' => $sectioninfo->id]);
+        }
+        if ($this->uses_sections() && $sectionno !== null) {
+            $url->set_anchor('section-'.$sectionno);
+        }
+
+        return $url;
     }
 
     /**
@@ -351,6 +408,10 @@ class format_grid extends core_courseformat\base {
                     'default' => 0,
                     'type' => PARAM_INT,
                 ],
+                'sectionzeroingrid' => [
+                    'default' => 0,
+                    'type' => PARAM_INT,
+                ],
                 'showcompletion' => [
                     'default' => 0,
                     'type' => PARAM_INT,
@@ -389,7 +450,7 @@ class format_grid extends core_courseformat\base {
                 ],
             ];
 
-            // TODO - Use capabilities?
+            // Todo - Use capabilities?
             $popupvalues = $this->generate_default_entry(
                 'popup',
                 0,
@@ -463,6 +524,22 @@ class format_grid extends core_courseformat\base {
                 'help_component' => 'format_grid',
                 'element_type' => 'select',
                 'element_attributes' => [$imageresizemethodvalues],
+            ];
+
+            $sectionzeroingridvalues = $this->generate_default_entry(
+                'sectionzeroingrid',
+                0,
+                [
+                    1 => new lang_string('no'),
+                    2 => new lang_string('yes'),
+                ],
+            );
+            $courseformatoptionsedit['sectionzeroingrid'] = [
+                'label' => new lang_string('sectionzeroingrid', 'format_grid'),
+                'help' => 'sectionzeroingrid',
+                'help_component' => 'format_grid',
+                'element_type' => 'select',
+                'element_attributes' => [$sectionzeroingridvalues],
             ];
 
             $showcompletionvalues = $this->generate_default_entry(
@@ -548,6 +625,14 @@ class format_grid extends core_courseformat\base {
             $maxsections = get_config('moodlecourse', 'maxsections');
             $numsections = $mform->getElementValue('gnumsections');
             $numsections = $numsections[0];
+            if ($numsections < 0) {
+                $numsections = $this->get_last_section_number();
+                /* Instead of setValue on the element as the default gets reused when the form is re-arranged by
+                   'definition_after_data' in '/course/edit_form.php', specifically the calls to 'insertElementBefore'
+                   after this method was called. */
+                $mform->setDefault('gnumsections', $numsections);
+                $this->restore_gnumsections($numsections);
+            }
             if ($numsections > $maxsections) {
                 $element = $mform->getElement('gnumsections');
                 for ($i = $maxsections + 1; $i <= $numsections; $i++) {
@@ -647,6 +732,31 @@ class format_grid extends core_courseformat\base {
         return $changes;
     }
 
+    /**
+     * Definitions of the additional options that this course format uses for section
+     *
+     * See course_format::course_format_options() for return array definition.
+     *
+     * Additionally section format options may have property 'cache' set to true
+     * if this option needs to be cached in get_fast_modinfo(). The 'cache' property
+     * is recommended to be set only for fields used in course_format::get_section_name(),
+     * course_format::extend_course_navigation() and course_format::get_view_url()
+     *
+     * For better performance cached options are recommended to have 'cachedefault' property
+     * Unlike 'default', 'cachedefault' should be static and not access get_config().
+     *
+     * Regardless of value of 'cache' all options are accessed in the code as
+     * $sectioninfo->OPTIONNAME
+     * where $sectioninfo is instance of section_info, returned by
+     * get_fast_modinfo($course)->get_section_info($sectionnum)
+     * or get_fast_modinfo($course)->get_section_info_all()
+     *
+     * All format options for particular section are returned by calling:
+     * $this->get_format_options($section);
+     *
+     * @param bool $foreditform
+     * @return array
+     */
     public function section_format_options($foreditform = false) {
         static $sectionformatoptions = false;
         if ($sectionformatoptions === false) {
@@ -812,6 +922,19 @@ class format_grid extends core_courseformat\base {
         return !$section->section || ($section->visible && $section->section <= $this->get_course()->gnumsections);
     }
 
+    /**
+     * Callback used in WS core_course_edit_section when teacher performs an AJAX action on a section (show/hide)
+     *
+     * Access to the course is already validated in the WS but the callback has to make sure
+     * that particular action is allowed by checking capabilities
+     *
+     * Course formats should register
+     *
+     * @param stdClass|section_info $section
+     * @param string $action
+     * @param int $sr the section return
+     * @return null|array|stdClass any data for the Javascript post-processor (must be json-encodeable)
+     */
     public function section_action($section, $action, $sr) {
         global $PAGE;
 
@@ -850,15 +973,28 @@ class format_grid extends core_courseformat\base {
      * A section has been added.  Should only be called from the state actions instance.
      */
     public function section_added() {
-        $data = ['gnumsections' => $this->settings['gnumsections'] + 1];
-        $this->update_format_options($data);
+        $this->change_gnumsections(true);
     }
 
     /**
      * A section has been deleted.  Should only be called from the state actions instance.
      */
     public function section_deleted() {
-        $data = ['gnumsections' => $this->settings['gnumsections'] - 1];
+        $this->change_gnumsections(false);
+    }
+
+    /**
+     * A section has been added or deleted.  Should only be called via the state actions instance.
+     *
+     * @param bool $add Add a section or delete if false.
+     */
+    protected function change_gnumsections($add) {
+        if ($add) {
+            $newgnumsetions = $this->settings['gnumsections'] + 1;
+        } else {
+            $newgnumsetions = $this->settings['gnumsections'] - 1;
+        }
+        $data = ['gnumsections' => $newgnumsetions];
         $this->update_format_options($data);
     }
 
@@ -879,6 +1015,15 @@ class format_grid extends core_courseformat\base {
      */
     public static function update_displayed_images_callback() {
         \format_grid\toolbox::update_displayed_images_callback();
+    }
+
+    /**
+     * Get the required javascript files for the course format.
+     *
+     * @return array The list of javascript files required by the course format.
+     */
+    public function get_required_jsfiles(): array {
+        return [];
     }
 }
 

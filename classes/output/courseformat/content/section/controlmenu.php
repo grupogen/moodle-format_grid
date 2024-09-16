@@ -19,7 +19,6 @@
  * Contains the default section controls output class.
  *
  * @package    format_grid
- * @version    See the value of '$plugin->version' in version.php.
  * @copyright  &copy; 2022 G J Barnard in respect to modifications of standard topics format.
  * @author     G J Barnard - {@link http://about.me/gjbarnard} and
  *                           {@link http://moodle.org/user/profile.php?id=442195}
@@ -60,7 +59,7 @@ class controlmenu extends controlmenu_base {
         $format = $this->format;
         $section = $this->section;
         $course = $format->get_course();
-        $sectionreturn = $format->get_section_number();
+        $sectionreturn = $format->get_sectionnum();
 
         $coursecontext = context_course::instance($course->id);
 

@@ -1,8 +1,40 @@
 History
 =============
 
-Version 402.2.1 - 14/10/2023
+Version 404.1.0 - 11/04/2024
 ----------------------------
+1. Fix updating of course when adding or removing sections.  Note: Known issue of the section not looking as it should.
+2. Section navigation visibility improvements.
+3. Fix display of section zero on a single section page.
+4. Fix 'Unable to update defaultimageresizemethod setting' - #211.
+5. Add 'sectionzeroingrid' course and 'defaultsectionzeroingrid' site settings to state if section zero should be in the grid.
+
+Version 404.0.1 - 22/04/2024
+----------------------------
+1. Release candidate version for Moodle 4.4.
+
+Version 403.1.2 - 08/04/2024
+----------------------------
+1. Fix 'Orphaned Section still appear in Index Drawer'.
+2. Fix 'Restrict access can cause no content in other sections to be shown.' - #202.
+3. Fix 'Import quiz error + Number of topics reduced to 1' - #203.
+4. Improved solution to 'Problems with creating multiple courses from template via CSV in Grid Format' - #189, related to #203.
+5. Fix 'Html entities in section titles are not being decoded' - #205.
+
+Version 403.1.1 - 22/01/2024
+----------------------------
+1. Fix 'Import a format_grid course into a format_topics course fails and produces "undefined method"' - #193,
+   thanks to @Syxton(Matt Davidson).
+2. Fix 'Sections showing beyond the number set in the settings', related to #196.
+3. Improved backup and restore logic.
+4. Show warning if there is a stealth section with content, related to #196.
+
+Version 403.1.0 - 15/10/2023
+----------------------------
+1. First version for Moodle 4.3.
+
+Version 402.2.1b - 14/10/2023
+-----------------------------
 1. Fix 'Webp image causes an error and makes course unaccessible' - #190.
 2. Fix "Hidden sections are shown as not available" doesn't seem to work. - #192.
 3. Add 'Flex containers' justify-content property options' - #191.
@@ -14,7 +46,7 @@ Version 402.2.1 - 14/10/2023
    section will show using an inner border to avoid conflict with accessibility, then use Esc to open the modal.  Accessibility
    keys of Tab / Shift Tab and Enter will function to navigate with the focussed item and when a grid section is selected,
    the Enter key will open the modal.  On the modal itself, the same keys will navigate the slider controls and the two
-   close buttons, as well as the modules within the section. #191.
+   close buttons, as well as the modules within the section. #191.  Sponsored by AAU.
 
 Version 402.2.0 - 16/08/2023
 ----------------------------
